@@ -12,4 +12,13 @@
     "build": "bun build src/index.ts --outdir dist --target=bun --format=esm --sourcemap=linked"
   },
   "dependencies": {
-    "discord.js": "^14.
+    "discord.js": "^14.19.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}
