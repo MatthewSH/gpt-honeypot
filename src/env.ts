@@ -32,7 +32,7 @@ function list(name: string, fallback: string[]): string[] {
   return items.length > 0 ? items : fallback;
 }
 
-const dashboardEnabled = flag("DASHBOARD_ENABLED", true);
+const dashboardEnabled = flag("DASHBOARD_ENABLED", false);
 const dashboardToken = optional("DASHBOARD_TOKEN");
 if (dashboardEnabled && !dashboardToken) throw new Error("DASHBOARD_TOKEN is required when DASHBOARD_ENABLED=true");
 
