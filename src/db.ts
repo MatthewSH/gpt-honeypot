@@ -43,7 +43,7 @@ type ChannelRow = {
 if (env.databasePath !== ":memory:") mkdirSync(dirname(env.databasePath), { recursive: true });
 
 const sqlite = new Database(env.databasePath, { strict: true });
-sqlite.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;");
+sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;");
 
 function now() {
   return new Date().toISOString();
@@ -71,8 +71,7 @@ function createCurrentTables() {
       warning_message_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      PRIMARY KEY (guild_id, channel_id),
-      FOREIGN KEY (guild_id) REFERENCES guild_config(guild_id) ON DELETE CASCADE
+      PRIMARY KEY (guild_id, channel_id)
     );
 
     CREATE TABLE IF NOT EXISTS moderation_events (
@@ -128,8 +127,10 @@ function migrateLegacyEvents() {
   })();
 }
 
+if (columns("guild_config").size === 0) createCurrentTables();
+else migrateLegacyConfig();
+
 createCurrentTables();
-migrateLegacyConfig();
 migrateLegacyEvents();
 sqlite.exec(`
   UPDATE guild_config SET action = 'softban' WHERE action NOT IN ('softban', 'ban', 'disabled');
