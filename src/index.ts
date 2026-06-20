@@ -1,3 +1,3 @@
-import { startBot } from "./runtime";
+import { startBot } from "./bot";
 
 await startBot();
