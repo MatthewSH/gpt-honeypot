@@ -9,7 +9,8 @@
     "start": "bun src/index.ts",
     "commands:sync": "bun src/sync-commands.ts",
     "check": "tsc --noEmit",
-    "build": "bun build src/index.ts --outdir dist --target=bun --format=esm --sourcemap=linked"
+    "build": "bun build src/index.ts --outdir dist --target=bun --format=esm --sourcemap=linked",
+    "ci": "bun run check && bun run build"
   },
   "dependencies": {
     "discord.js": "^14.19.3"
