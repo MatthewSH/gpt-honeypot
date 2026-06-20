@@ -11,3 +11,5 @@
     "check": "tsc --noEmit",
     "build": "bun build src/index.ts --outdir dist --target=bun --format=esm --sourcemap=linked"
   },
+  "dependencies": {
+    "discord.js": "^14.
