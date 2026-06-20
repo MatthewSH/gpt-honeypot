@@ -12,5 +12,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/data && chown -R app:app /app
 COPY --from=build --chown=app:app /app/dist ./dist
+EXPOSE 3000
 USER app
 CMD ["bun", "dist/index.js"]
