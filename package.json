@@ -1,7 +1,7 @@
 {
   "name": "gpt-honeypot",
-  "version": "0.2.0",
-  "description": "A focused multi-channel Discord honeypot bot built with TypeScript and Bun.",
+  "version": "0.3.0",
+  "description": "A focused multi-channel Discord honeypot bot with analytics, allowlists, and a Bun dashboard.",
   "type": "module",
   "private": false,
   "scripts": {
