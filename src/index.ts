@@ -8,6 +8,7 @@ import {
   PermissionFlagsBits,
   type ChatInputCommandInteraction,
   type Guild,
+  type GuildMember,
   type Message,
   type TextChannel
 } from "discord.js";
@@ -16,8 +17,22 @@ import { commands } from "./commands";
 import { closeDb, ensureConfig, getConfig, getGuildStats, logEvent, updateConfig, type GuildConfig } from "./db";
 import { env } from "./env";
 
+const ACTIVE_TTL_MS = 60_000;
 const active = new Map<string, number>();
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+
+type ActionResult = { outcome: "success" | "failed" | "skipped" | "dry-run"; reason: string };
+
+function shortReason(value: unknown): string {
+  return (value instanceof Error ? value.message : String(value)).slice(0, 300) || "unknown";
+}
+
+function rememberActive(key: string) {
+  const now = Date.now();
+  for (const [k, until] of active) if (until <= now) active.delete(k);
+  active.set(key, now + ACTIVE_TTL_MS);
+  setTimeout(() => active.delete(key), ACTIVE_TTL_MS).unref();
+}
 
 function warning(config: GuildConfig): string {
   const stats = getGuildStats(config.guildId);
@@ -31,7 +46,9 @@ function status(config: GuildConfig): string {
 }
 
 async function reply(interaction: ChatInputCommandInteraction, content: string) {
-  if (interaction.replied || interaction.deferred) {
+  if (interaction.deferred) {
+    await interaction.editReply({ content });
+  } else if (interaction.replied) {
     await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
   } else {
     await interaction.reply({ content, flags: MessageFlags.Ephemeral });
@@ -44,15 +61,19 @@ async function textChannel(guild: Guild, id: string | null): Promise<TextChannel
   return channel?.type === ChannelType.GuildText ? channel : null;
 }
 
+async function botMember(guild: Guild): Promise<GuildMember | null> {
+  return guild.members.me ?? guild.members.fetchMe().catch(() => null);
+}
+
 async function refreshWarning(guild: Guild, config: GuildConfig): Promise<GuildConfig> {
   const channel = await textChannel(guild, config.trapChannelId);
-  if (!channel) return config;
+  if (!channel || config.enabled === false) return config;
 
   const content = warning(config);
   if (config.warningMessageId) {
     const existing = await channel.messages.fetch(config.warningMessageId).catch(() => null);
     if (existing) {
-      await existing.edit(content).catch(() => undefined);
+      await existing.edit({ content, allowedMentions: { parse: [] } }).catch(() => undefined);
       return config;
     }
   }
@@ -67,10 +88,16 @@ async function ensureTrap(guild: Guild): Promise<GuildConfig> {
   const existing = await textChannel(guild, config.trapChannelId);
   if (existing) return refreshWarning(guild, config);
 
+  const me = await botMember(guild);
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    throw new Error("Manage Channels is required to create the channel automatically. Use /honeypot setup channel:<existing channel> instead.");
+  }
+
   const channel = await guild.channels.create({
     name: env.honeypotChannelName,
     type: ChannelType.GuildText,
-    topic: "GPT Honeypot: visible channel used to catch drive-by spam.",
+    topic: "GPT Honeypot visible warning channel.",
+    rateLimitPerUser: 3_600,
     reason: "GPT Honeypot setup",
     permissionOverwrites: [
       {
@@ -80,11 +107,11 @@ async function ensureTrap(guild: Guild): Promise<GuildConfig> {
     ]
   });
 
-  config = updateConfig(guild.id, { trapChannelId: channel.id, enabled: true });
+  config = updateConfig(guild.id, { trapChannelId: channel.id, warningMessageId: null, enabled: true });
   return refreshWarning(guild, config);
 }
 
-async function sendLog(message: Message<true>, config: GuildConfig, outcome: string, reason: string) {
+async function sendLog(message: Message<true>, config: GuildConfig, result: ActionResult) {
   const channel = (await textChannel(message.guild, config.logChannelId)) ?? (await textChannel(message.guild, config.trapChannelId));
   if (!channel) return;
 
@@ -92,39 +119,52 @@ async function sendLog(message: Message<true>, config: GuildConfig, outcome: str
     .setTitle("GPT Honeypot event")
     .setDescription(`${message.author} posted in ${message.channel}.`)
     .addFields(
+      { name: "User", value: `${message.author.tag}\n${message.author.id}`, inline: true },
       { name: "Mode", value: config.action, inline: true },
-      { name: "Outcome", value: outcome, inline: true },
-      { name: "Reason", value: reason.slice(0, 1024) || "none" }
+      { name: "Outcome", value: result.outcome, inline: true },
+      { name: "Reason", value: result.reason.slice(0, 1024) || "none" }
     )
     .setTimestamp();
 
   await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => undefined);
 }
 
-async function act(message: Message<true>, action: HoneypotAction): Promise<{ outcome: string; reason: string }> {
+async function act(message: Message<true>, action: HoneypotAction): Promise<ActionResult> {
   if (env.dryRun) return { outcome: "dry-run", reason: "DRY_RUN=true" };
   if (message.guild.ownerId === message.author.id) return { outcome: "skipped", reason: "server owner" };
   if (action === "disabled") return { outcome: "skipped", reason: "disabled" };
 
+  const me = await botMember(message.guild);
+  if (!me) return { outcome: "failed", reason: "bot member not found" };
+
+  const member = message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
   const reason = `GPT Honeypot: message ${message.id}`;
-  const member = await message.guild.members.fetch(message.author.id).catch(() => null);
 
   if (action === "timeout") {
-    if (!member) return { outcome: "failed", reason: "member not found" };
+    if (!me.permissions.has(PermissionFlagsBits.ModerateMembers)) return { outcome: "failed", reason: "missing Moderate Members" };
+    if (!member?.moderatable) return { outcome: "failed", reason: "target is not moderatable" };
     await member.timeout(env.timeoutMinutes * 60_000, reason);
     return { outcome: "success", reason: `timed out for ${env.timeoutMinutes} minutes` };
   }
 
   if (action === "kick") {
-    if (!member) return { outcome: "failed", reason: "member not found" };
+    if (!me.permissions.has(PermissionFlagsBits.KickMembers)) return { outcome: "failed", reason: "missing Kick Members" };
+    if (!member?.kickable) return { outcome: "failed", reason: "target is not kickable" };
     await member.kick(reason);
     return { outcome: "success", reason: "removed from server" };
   }
 
+  if (!me.permissions.has(PermissionFlagsBits.BanMembers)) return { outcome: "failed", reason: "missing Ban Members" };
+  if (member && !member.bannable) return { outcome: "failed", reason: "target is not bannable" };
+
   if (action === "softban") {
     await message.guild.members.ban(message.author.id, { deleteMessageSeconds: env.deleteMessageSeconds, reason });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    await message.guild.members.unban(message.author.id, "GPT Honeypot soft release");
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    try {
+      await message.guild.members.unban(message.author.id, "GPT Honeypot release");
+    } catch (error) {
+      return { outcome: "failed", reason: `release failed: ${shortReason(error)}` };
+    }
     return { outcome: "success", reason: "soft action complete" };
   }
 
@@ -142,20 +182,18 @@ async function handleMessage(message: Message) {
   if (message.channelId !== config.trapChannelId) return;
 
   const key = `${message.guild.id}:${message.author.id}`;
-  const until = active.get(key) ?? 0;
-  if (until > Date.now()) return;
-  active.set(key, Date.now() + 60_000);
-  setTimeout(() => active.delete(key), 60_000).unref();
+  if ((active.get(key) ?? 0) > Date.now()) return;
+  rememberActive(key);
 
   await message.react("🍯").catch(() => undefined);
   await message.author.send(`You posted in GPT Honeypot for ${message.guild.name}.`).catch(() => undefined);
   await textChannel(message.guild, config.logChannelId).then((channel) => channel && message.forward(channel)).catch(() => undefined);
 
-  let result: { outcome: string; reason: string };
+  let result: ActionResult;
   try {
     result = await act(message, config.action);
   } catch (error) {
-    result = { outcome: "failed", reason: error instanceof Error ? error.message : String(error) };
+    result = { outcome: "failed", reason: shortReason(error) };
   }
 
   logEvent({
@@ -169,12 +207,14 @@ async function handleMessage(message: Message) {
     reason: result.reason
   });
 
-  await sendLog(message, config, result.outcome, result.reason);
+  await sendLog(message, config, result);
   await refreshWarning(message.guild, config).catch(() => undefined);
 }
 
 async function handleCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return reply(interaction, "Use this in a server.");
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return reply(interaction, "You need Manage Server.");
 
   const guild = interaction.guild;
@@ -202,7 +242,8 @@ async function handleCommand(interaction: ChatInputCommandInteraction) {
   if (sub === "action") {
     const action = interaction.options.getString("action");
     if (!isHoneypotAction(action)) return reply(interaction, "Invalid action.");
-    return reply(interaction, status(updateConfig(guild.id, { action, enabled: action !== "disabled" })));
+    config = updateConfig(guild.id, { action, enabled: action !== "disabled" });
+    return reply(interaction, status(config));
   }
 
   if (sub === "channel") {
@@ -236,7 +277,9 @@ client.on(Events.InteractionCreate, (interaction) => {
   if (!interaction.isChatInputCommand() || interaction.commandName !== "honeypot") return;
   handleCommand(interaction).catch(async (error) => {
     console.error("command failed", error);
-    if (!interaction.replied) await interaction.reply({ content: "Command failed. Check bot logs.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    const content = "Command failed. Check bot logs.";
+    if (interaction.deferred) await interaction.editReply({ content }).catch(() => undefined);
+    else if (!interaction.replied) await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
   });
 });
 
