@@ -1,28 +1,17 @@
 # GPT Honeypot 🍯
 
-A focused Discord honeypot bot built with TypeScript, Bun, discord.js, and SQLite.
+Discord trap-channel bot built with TypeScript, Bun, discord.js, SQLite, and a small built-in analytics dashboard.
 
-GPT Honeypot creates one or more obvious trap channels. If an account posts in a trap, the bot records one idempotent event and performs the configured removal action.
+## Core model
 
-## Design rules
-
-- The trap should remove spam accounts, not babysit them.
-- No timeout or kick modes. They are weak for this use case and create noisy retry/rejoin behavior.
-- No username persistence. User IDs are stable; usernames are display data.
-- Multiple trap channels are first-class, not a future idea.
-- Counts separate total events from successful catches.
-- SQLite is the default single-process store. Add Redis only when a real distributed/sharded runtime needs it.
-
-## Features
-
-- Bun runtime with strict TypeScript.
-- SQLite storage using Bun's built-in driver.
-- Multi-channel trap model.
-- Slash commands for setup, status, trap channel management, logs, enable/disable, and action changes.
-- Actions: `softban`, `ban`, or `disabled`.
-- Guardrails: visible warning posts, server-owner protection, permission checks, webhook ignore, idempotent event claiming, dry-run mode, and optional bot ignore.
-- Staff logs with message evidence links and optional Discord forwarding.
-- Guild command sync for instant local testing.
+- Server state is `enabled` or `disabled`.
+- Removal action is only `softban` or `ban`.
+- No timeout or kick modes.
+- No username persistence; stable IDs only.
+- Multiple decoy channels are first-class.
+- Per-server allowlists are first-class.
+- Dashboard metrics separate all trigger events from successful catches.
+- Staff evidence is a forwarded copy in the log channel when possible.
 
 ## Quick start
 
@@ -33,9 +22,7 @@ bun run commands:sync
 bun run start
 ```
 
-Set `GUILD_ID` while developing to sync commands to one test server instantly. Remove it for global command rollout.
-
-Start in a private test server with `DRY_RUN=true`.
+Set `GUILD_ID` for fast test-server command sync.
 
 ## Environment
 
@@ -45,41 +32,64 @@ CLIENT_ID=your_application_client_id_here
 GUILD_ID=
 DATABASE_PATH=data/gpt-honeypot.sqlite
 DEFAULT_ACTION=softban
-HONEYPOT_CHANNEL_NAME=read-me-first
+HONEYPOT_CHANNEL_NAMES=read-me-first,rules-check,verify-here,start-here
+TRAP_SLOWMODE_SECONDS=5
 DRY_RUN=false
 IGNORE_DISCORD_BOTS=true
 DELETE_MESSAGE_SECONDS=3600
+DASHBOARD_ENABLED=false
+DASHBOARD_TOKEN=change-me
+DASHBOARD_HOST=0.0.0.0
+DASHBOARD_PORT=3000
 ```
 
 ## Commands
 
 ```text
-/honeypot setup [channel] [log-channel] [action]
+/honeypot setup [channel] [log-channel] [action] [decoys]
 /honeypot status
 /honeypot stats
 /honeypot enable
 /honeypot disable
-/honeypot action <softban|ban|disabled>
+/honeypot action <softban|ban>
 /honeypot log <channel>
 /honeypot channels add <channel>
+/honeypot channels create <count>
 /honeypot channels remove <channel>
 /honeypot channels list
+/honeypot allowlist add <user>
+/honeypot allowlist remove <user>
+/honeypot allowlist list
+```
+
+## Dashboard
+
+Enable it with `DASHBOARD_ENABLED=true` and `DASHBOARD_TOKEN=...`.
+
+Open `http://localhost:3000/?key=TOKEN` for local use, or send `x-dashboard-token: TOKEN` from a reverse proxy.
+
+Endpoints:
+
+```text
+/api/summary
+/api/guilds
+/api/events?limit=50
 ```
 
 ## Launch flow
 
-1. Invite the bot to a test server with `Manage Channels`, `Send Messages`, `Read Message History`, and `Ban Members`.
-2. Set `DRY_RUN=true`.
+1. Invite the bot with `Manage Channels`, `Send Messages`, `Read Message History`, and `Ban Members`.
+2. Start with `DRY_RUN=true`.
 3. Run `bun run commands:sync`.
-4. Run `/honeypot setup`.
-5. Add more traps with `/honeypot channels add`.
-6. Set staff logs with `/honeypot log`.
-7. Verify warning posts and logs.
-8. Turn off dry-run and choose `softban` or `ban`.
+4. Run `/honeypot setup decoys:3`.
+5. Set logs with `/honeypot log`.
+6. Add test users with `/honeypot allowlist add`.
+7. Verify warning posts, forwarded evidence, dashboard totals, and allowlist behavior.
+8. Turn off dry-run.
 
 ## Docker
 
 ```bash
 docker build -t gpt-honeypot .
-docker run --env-file .env -v gpt-honeypot-data:/app/data gpt-honeypot
+docker run --env-file .env -p 3000:3000 -v gpt-honeypot-data:/app/data gpt-honeypot
 ```
