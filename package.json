@@ -1,0 +1,13 @@
+{
+  "name": "gpt-honeypot",
+  "version": "0.1.0",
+  "description": "A lean Discord honeypot bot built with TypeScript and Bun.",
+  "type": "module",
+  "private": false,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "commands:sync": "bun src/sync-commands.ts",
+    "check": "tsc --noEmit",
+    "build": "bun build src/index.ts --outdir dist --target=bun --format=esm --sourcemap=linked"
+  },
