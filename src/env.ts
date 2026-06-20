@@ -31,6 +31,7 @@ const token = required("DISCORD_TOKEN");
 export const env = {
   discordToken: token,
   clientId: process.env.CLIENT_ID || clientIdFromToken(token) || required("CLIENT_ID"),
+  guildId: process.env.GUILD_ID || null,
   databasePath: process.env.DATABASE_PATH || "data/gpt-honeypot.sqlite",
   defaultAction: process.env.DEFAULT_ACTION || "softban",
   honeypotChannelName: process.env.HONEYPOT_CHANNEL_NAME || "read-me-first",
