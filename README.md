@@ -1,16 +1,16 @@
 # GPT Honeypot 🍯
 
-A lean Discord honeypot bot built with TypeScript and Bun.
+A lean Discord honeypot bot built with TypeScript, Bun, discord.js, and SQLite.
 
-GPT Honeypot creates a visible warning channel, watches for posts there, records events in SQLite, and lets staff choose a server moderation mode.
+GPT Honeypot creates a visible warning channel, watches for posts there, records events, and lets staff choose a server action mode.
 
 ## Features
 
-- Bun runtime with TypeScript.
+- Bun runtime with strict TypeScript.
 - SQLite storage using Bun's built-in driver.
 - Slash commands for setup, status, channel selection, logs, enable, disable, and mode changes.
 - Modes: `timeout`, `kick`, `softban`, `ban`, or `disabled`.
-- Guardrails: warning post, server-owner protection, webhook ignore, duplicate-event cooldown, dry-run mode, and optional Discord-bot ignore.
+- Guardrails: warning post, server-owner protection, permission checks, webhook ignore, duplicate-event cooldown, dry-run mode, and optional bot ignore.
 - Staff logs with forwarded evidence when a log channel is configured.
 - Event data model ready for a dashboard, analytics, and paid tiers.
 
@@ -23,6 +23,8 @@ bun run commands:sync
 bun run start
 ```
 
+Set `GUILD_ID` while developing to sync commands to one test server instantly. Remove it for global command rollout.
+
 Start in a private test server with `DRY_RUN=true`.
 
 ## Environment
@@ -30,6 +32,7 @@ Start in a private test server with `DRY_RUN=true`.
 ```env
 DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_application_client_id_here
+GUILD_ID=
 DATABASE_PATH=data/gpt-honeypot.sqlite
 DEFAULT_ACTION=softban
 HONEYPOT_CHANNEL_NAME=read-me-first
@@ -42,11 +45,12 @@ DELETE_MESSAGE_SECONDS=3600
 ## Launch flow
 
 1. Invite the bot to a test server.
-2. Run `bun run commands:sync`.
-3. Run `/honeypot setup`.
-4. Set a private staff log channel with `/honeypot log`.
-5. Test in dry-run mode.
-6. Enable your preferred mode after permissions and role order are verified.
+2. Set `DRY_RUN=true`.
+3. Run `bun run commands:sync`.
+4. Run `/honeypot setup`.
+5. Set a staff log channel with `/honeypot log`.
+6. Test the trap.
+7. Switch to the preferred mode after permissions and role order are verified.
 
 ## Roadmap
 
