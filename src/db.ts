@@ -98,7 +98,7 @@ function migrateLegacyConfig() {
     createCurrentTables();
     sqlite.exec(`
       INSERT OR REPLACE INTO guild_config (guild_id, log_channel_id, action, enabled, created_at, updated_at)
-      SELECT guild_id, log_channel_id, action, enabled, created_at, updated_at
+      SELECT guild_id, log_channel_id, CASE WHEN action IN ('softban', 'ban', 'disabled') THEN action ELSE 'softban' END, enabled, created_at, updated_at
       FROM guild_config_legacy;
 
       INSERT OR IGNORE INTO honeypot_channels (guild_id, channel_id, warning_message_id, created_at, updated_at)
@@ -132,6 +132,7 @@ createCurrentTables();
 migrateLegacyConfig();
 migrateLegacyEvents();
 sqlite.exec(`
+  UPDATE guild_config SET action = 'softban' WHERE action NOT IN ('softban', 'ban', 'disabled');
   CREATE INDEX IF NOT EXISTS idx_channels_guild ON honeypot_channels(guild_id);
   CREATE INDEX IF NOT EXISTS idx_events_guild_created ON moderation_events(guild_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_events_guild_channel ON moderation_events(guild_id, channel_id, created_at);
